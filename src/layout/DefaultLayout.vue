@@ -70,7 +70,12 @@
             </n-icon>
             <span>消息测试</span>
           </router-link>
-          <router-link to="/admin/legion-war" class="nav-item" active-class="active"  v-if="isNowInLegionWarTime()" >
+          <router-link
+            to="/admin/legion-war"
+            class="nav-item"
+            active-class="active"
+            v-if="isNowInLegionWarTime()"
+          >
             <n-icon>
               <LockOpen />
             </n-icon>
@@ -176,12 +181,17 @@
           </n-icon>
           <span>消息测试</span>
         </router-link>
-          <router-link to="/admin/legion-war" class="nav-item" active-class="active"  v-if="isNowInLegionWarTime()" >
-            <n-icon>
-              <LockOpen />
-            </n-icon>
-            <span>实时盐场</span>
-          </router-link>
+        <router-link
+          to="/admin/legion-war"
+          class="nav-item"
+          active-class="active"
+          v-if="isNowInLegionWarTime()"
+        >
+          <n-icon>
+            <LockOpen />
+          </n-icon>
+          <span>实时盐场</span>
+        </router-link>
         <router-link
           to="/admin/profile"
           class="drawer-item"
@@ -202,28 +212,24 @@
 
 <script setup>
 import {
-  useTokenStore,
-  selectedToken,
-  selectedTokenId,
-} from "@/stores/tokenStore";
-import ThemeToggle from "@/components/Common/ThemeToggle.vue";
-import {
-  Home,
-  PersonCircle,
-  Cube,
-  Settings,
-  ChevronDown,
-  ChatbubbleEllipsesSharp,
-  LockClosedSharp,LockOpen,
-  Menu,
-  Layers,
   ArrowUpCircle,
+  ChatbubbleEllipsesSharp,
+  ChevronDown,
+  Cube,
+  Home,
+  Layers,
+  LockOpen,
+  Menu,
+  PersonCircle,
+  Settings,
 } from "@vicons/ionicons5";
+import { useMessage } from "naive-ui";
+import { ref } from "vue";
 
-import { useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
-import { ref } from 'vue'
-import { isNowInLegionWarTime } from '@/utils/clubBattleUtils'
+import { useRouter } from "vue-router";
+import ThemeToggle from "@/components/Common/ThemeToggle.vue";
+import { selectedToken, useTokenStore } from "@/stores/tokenStore";
+import { isNowInLegionWarTime } from "@/utils/clubBattleUtils";
 
 const tokenStore = useTokenStore();
 const router = useRouter();

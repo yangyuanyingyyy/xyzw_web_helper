@@ -14,13 +14,13 @@
       </div>
 
       <!-- 限流等待提示 -->
-      <n-alert
+      <NAlert
         v-if="rateLimitWaiting"
         type="warning"
         style="margin-bottom: 16px"
       >
         {{ rateLimitMessage }}
-      </n-alert>
+      </NAlert>
 
       <!-- Token导入区域 -->
       <a-modal
@@ -32,9 +32,9 @@
       >
         <template #title>
           <h2>
-            <n-icon>
+            <NIcon>
               <Add />
-            </n-icon>
+            </NIcon>
             添加游戏Token
           </h2>
         </template>
@@ -54,32 +54,32 @@
           </n-radio-group>
         </div>
         <div class="card-body">
-          <manual-token-form
+          <ManualTokenForm
             @cancel="() => (showImportForm = false)"
             @ok="() => (showImportForm = false)"
             v-if="importMethod === 'manual'"
           />
-          <url-token-form
+          <UrlTokenForm
             @cancel="() => (showImportForm = false)"
             @ok="() => (showImportForm = false)"
             v-if="importMethod === 'url'"
           />
-          <wx-qrcode-form
+          <WxQrcodeForm
             @cancel="() => (showImportForm = false)"
             @ok="() => (showImportForm = false)"
             v-if="importMethod === 'wxQrcode'"
           />
-          <mobile-token-form
+          <MobileTokenForm
             @cancel="() => (showImportForm = false)"
             @ok="() => (showImportForm = false)"
             v-if="importMethod === 'mobile'"
           />
-          <bin-token-form
+          <BinTokenForm
             @cancel="() => (showImportForm = false)"
             @ok="() => (showImportForm = false)"
             v-if="importMethod === 'bin'"
           />
-          <single-bin-token-form
+          <SingleBinTokenForm
             @cancel="() => (showImportForm = false)"
             @ok="() => (showImportForm = false)"
             v-if="importMethod === 'singlebin'"
@@ -92,11 +92,11 @@
         <div class="section-header">
           <div class="section-main">
             <div class="section-title-row">
-            <h2>我的Token列表 ({{ tokenStore.gameTokens.length }}个)</h2>
-            <n-radio-group v-model:value="viewMode" size="small">
-              <n-radio-button value="list">列表</n-radio-button>
-              <n-radio-button value="card">卡片</n-radio-button>
-            </n-radio-group>
+              <h2>我的Token列表 ({{ tokenStore.gameTokens.length }}个)</h2>
+              <n-radio-group v-model:value="viewMode" size="small">
+                <n-radio-button value="list">列表</n-radio-button>
+                <n-radio-button value="card">卡片</n-radio-button>
+              </n-radio-group>
             </div>
             <n-button-group size="small" class="sort-buttons">
               <n-button
@@ -139,7 +139,9 @@
             </n-button>
             <n-button
               size="small"
-              :disabled="multiGameSelectedTokenIds.size === 0 || isOpeningMultiGame"
+              :disabled="
+                multiGameSelectedTokenIds.size === 0 || isOpeningMultiGame
+              "
               @click="clearMultiGameTokenSelection"
             >
               清空
@@ -153,33 +155,33 @@
               @click="openSelectedGames"
             >
               <template #icon>
-                <n-icon>
+                <NIcon>
                   <GameController />
-                </n-icon>
+                </NIcon>
               </template>
               批量进入游戏（{{ multiGameSelectedTokenIds.size }}）
             </n-button>
             <n-button type="info" @click="openGame">
               <template #icon>
-                <n-icon>
+                <NIcon>
                   <GameController />
-                </n-icon>
+                </NIcon>
               </template>
               打开游戏
             </n-button>
             <n-button type="success" @click="goToDashboard">
               <template #icon>
-                <n-icon>
+                <NIcon>
                   <List />
-                </n-icon>
+                </NIcon>
               </template>
               批量功能
             </n-button>
             <n-button type="warning" @click="goToPushingLevels">
               <template #icon>
-                <n-icon>
+                <NIcon>
                   <Rocket />
-                </n-icon>
+                </NIcon>
               </template>
               主线推关
             </n-button>
@@ -190,9 +192,9 @@
               @click="showImportForm = true"
             >
               <template #icon>
-                <n-icon>
+                <NIcon>
                   <Add />
-                </n-icon>
+                </NIcon>
               </template>
               添加Token
             </n-button>
@@ -200,9 +202,9 @@
             <n-dropdown :options="bulkOptions" @select="handleBulkAction">
               <n-button>
                 <template #icon>
-                  <n-icon>
+                  <NIcon>
                     <Menu />
-                  </n-icon>
+                  </NIcon>
                 </template>
                 批量操作
               </n-button>
@@ -212,17 +214,17 @@
 
         <div class="tokens-grid" v-if="viewMode === 'card'">
           <a-card
-            v-for="(token, index) in sortedTokens"
-            :key="token.id"
+            v-for="(gameToken, tokenIndex) in sortedTokens"
+            :key="gameToken.id"
             draggable="true"
-            @dragstart="handleDragStart(index, $event)"
+            @dragstart="handleDragStart(tokenIndex, $event)"
             @dragover="handleDragOver($event)"
-            @drop="handleDrop(index, $event)"
+            @drop="handleDrop(tokenIndex, $event)"
+            class="token-card"
             :class="{
-              'token-card': true,
-              active: selectedTokenId === token.id,
+              active: selectedTokenId === gameToken.id,
             }"
-            @click="selectToken(token)"
+            @click="selectToken(gameToken)"
           >
             <template #title>
               <a-space class="token-name" align="center">
@@ -233,32 +235,33 @@
                   @dragstart.stop.prevent
                 >
                   <n-checkbox
-                    :checked="multiGameSelectedTokenIds.has(token.id)"
+                    :checked="multiGameSelectedTokenIds.has(gameToken.id)"
                     :disabled="isOpeningMultiGame"
-                    :aria-label="`选择 ${token.name} 批量进入游戏`"
+                    :aria-label="`选择 ${gameToken.name} 批量进入游戏`"
                     @click.stop
                     @update:checked="
-                      (checked) => setMultiGameTokenSelected(token.id, checked)
+                      (checked) =>
+                        setMultiGameTokenSelected(gameToken.id, checked)
                     "
                   />
                 </span>
                 <n-avatar
-                  v-if="token.avatar"
-                  :src="token.avatar"
+                  v-if="gameToken.avatar"
+                  :src="gameToken.avatar"
                   round
                   size="small"
                   fallback-src="/icons/xiaoyugan.png"
                 />
-                {{ token.name }}
+                {{ gameToken.name }}
                 <a-tag
-                  :color="getServerTagColor(token.id)"
-                  v-if="token.server"
-                  >{{ token.server }}</a-tag
+                  :color="getServerTagColor(gameToken.id)"
+                  v-if="gameToken.server"
+                  >{{ gameToken.server }}</a-tag
                 >
                 <!-- 连接状态指示器 -->
                 <a-badge
-                  :status="getTokenStyle(token.id)"
-                  :text="getConnectionStatusText(token.id)"
+                  :status="getTokenStyle(gameToken.id)"
+                  :text="getConnectionStatusText(gameToken.id)"
                 />
                 <!-- 连接状态文字 -->
                 <!-- <a-tag color="green">
@@ -268,14 +271,14 @@
             </template>
             <template #extra>
               <n-dropdown
-                :options="getTokenActions(token)"
-                @select="(key) => handleTokenAction(key, token)"
+                :options="getTokenActions(gameToken)"
+                @select="(key) => handleTokenAction(key, gameToken)"
               >
                 <n-button text>
                   <template #icon>
-                    <n-icon>
+                    <NIcon>
                       <EllipsisHorizontal />
-                    </n-icon>
+                    </NIcon>
                   </template>
                 </n-button>
               </n-dropdown>
@@ -284,23 +287,25 @@
             <template #default>
               <div class="token-display">
                 <span class="token-label">Token:</span>
-                <code class="token-value">{{ maskToken(token.token) }}</code>
+                <code class="token-value">{{
+                  maskToken(gameToken.token)
+                }}</code>
               </div>
 
               <!-- 备注信息 -->
               <div
-                v-if="editingRemark === token.id"
+                v-if="editingRemark === gameToken.id"
                 class="token-remark token-remark-edit"
                 @click.stop
               >
                 <span class="remark-label">备注：</span>
                 <n-input
-                  v-model:value="tempRemarks[token.id]"
+                  v-model:value="tempRemarks[gameToken.id]"
                   type="textarea"
                   :rows="2"
                   placeholder="添加备注信息..."
-                  @blur="saveRemark(token)"
-                  @keyup.enter="saveRemark(token)"
+                  @blur="saveRemark(gameToken)"
+                  @keyup.enter="saveRemark(gameToken)"
                   @keyup.esc="cancelEditRemark()"
                   autofocus
                 />
@@ -308,40 +313,40 @@
               <div
                 v-else
                 class="token-remark"
-                @click.stop="startEditRemark(token)"
+                @click.stop="startEditRemark(gameToken)"
               >
                 <span class="remark-label">备注：</span>
                 <span class="remark-value">{{
-                  token.remark || "点击添加备注"
+                  gameToken.remark || "点击添加备注"
                 }}</span>
-                <n-icon style="margin-left: 4px; color: var(--text-tertiary)">
+                <NIcon style="margin-left: 4px; color: var(--text-tertiary)">
                   <Create />
-                </n-icon>
+                </NIcon>
               </div>
 
               <a-button
-                :loading="refreshingTokens.has(token.id)"
-                @click.stop="refreshToken(token)"
+                :loading="refreshingTokens.has(gameToken.id)"
+                @click.stop="refreshToken(gameToken)"
               >
                 <template #icon>
-                  <n-icon>
+                  <NIcon>
                     <Refresh />
-                  </n-icon>
+                  </NIcon>
                 </template>
-                {{ token.sourceUrl ? "刷新" : "重新获取" }}
+                {{ gameToken.sourceUrl ? "刷新" : "重新获取" }}
               </a-button>
 
               <div class="token-timestamps">
                 <div class="timestamp-item">
                   <span class="timestamp-label">创建：</span>
                   <span class="timestamp-value">{{
-                    formatTime(token.createdAt)
+                    formatTime(gameToken.createdAt)
                   }}</span>
                 </div>
                 <div class="timestamp-item">
                   <span class="timestamp-label">使用：</span>
                   <span class="timestamp-value">{{
-                    formatTime(token.lastUsed)
+                    formatTime(gameToken.lastUsed)
                   }}</span>
                 </div>
               </div>
@@ -353,23 +358,23 @@
                   <n-tag
                     size="small"
                     :type="
-                      token.importMethod === 'url' ||
-                      token.importMethod === 'bin' ||
-                      token.importMethod === 'wxQrcode' ||
-                      token.importMethod === 'mobile' ||
-                      token.importMethod === 'wxForceLogout' ||
-                      token.upgradedToPermanent
+                      gameToken.importMethod === 'url' ||
+                      gameToken.importMethod === 'bin' ||
+                      gameToken.importMethod === 'wxQrcode' ||
+                      gameToken.importMethod === 'mobile' ||
+                      gameToken.importMethod === 'wxForceLogout' ||
+                      gameToken.upgradedToPermanent
                         ? 'success'
                         : 'warning'
                     "
                   >
                     {{
-                      token.importMethod === "url" ||
-                      token.importMethod === "bin" ||
-                      token.importMethod === "wxQrcode" ||
-                      token.importMethod === "mobile" ||
-                      token.importMethod === "wxForceLogout" ||
-                      token.upgradedToPermanent
+                      gameToken.importMethod === "url" ||
+                      gameToken.importMethod === "bin" ||
+                      gameToken.importMethod === "wxQrcode" ||
+                      gameToken.importMethod === "mobile" ||
+                      gameToken.importMethod === "wxForceLogout" ||
+                      gameToken.upgradedToPermanent
                         ? "长期有效"
                         : "临时存储"
                     }}
@@ -380,12 +385,12 @@
                 <div
                   v-if="
                     !(
-                      token.importMethod === 'url' ||
-                      token.importMethod === 'bin' ||
-                      token.importMethod === 'wxQrcode' ||
-                      token.importMethod === 'mobile' ||
-                      token.importMethod === 'wxForceLogout' ||
-                      token.upgradedToPermanent
+                      gameToken.importMethod === 'url' ||
+                      gameToken.importMethod === 'bin' ||
+                      gameToken.importMethod === 'wxQrcode' ||
+                      gameToken.importMethod === 'mobile' ||
+                      gameToken.importMethod === 'wxForceLogout' ||
+                      gameToken.upgradedToPermanent
                     )
                   "
                   class="storage-upgrade"
@@ -394,12 +399,12 @@
                     size="tiny"
                     type="success"
                     ghost
-                    @click.stop="upgradeTokenToPermanent(token)"
+                    @click.stop="upgradeTokenToPermanent(gameToken)"
                   >
                     <template #icon>
-                      <n-icon>
+                      <NIcon>
                         <Star />
-                      </n-icon>
+                      </NIcon>
                     </template>
                     升级为长期有效
                   </n-button>
@@ -411,13 +416,13 @@
                 type="primary"
                 size="large"
                 block
-                :loading="connectingTokens.has(token.id)"
-                @click="startTaskManagement(token)"
+                :loading="connectingTokens.has(gameToken.id)"
+                @click="startTaskManagement(gameToken)"
               >
                 <template #icon>
-                  <n-icon>
+                  <NIcon>
                     <Home />
-                  </n-icon>
+                  </NIcon>
                 </template>
                 进入控制台
               </n-button>
@@ -428,17 +433,17 @@
         <!-- List View -->
         <div class="tokens-list" v-else>
           <n-card
-            v-for="(token, index) in sortedTokens"
-            :key="token.id"
+            v-for="(gameToken, tokenIndex) in sortedTokens"
+            :key="gameToken.id"
             draggable="true"
-            @dragstart="handleDragStart(index, $event)"
+            @dragstart="handleDragStart(tokenIndex, $event)"
             @dragover="handleDragOver($event)"
-            @drop="handleDrop(index, $event)"
+            @drop="handleDrop(tokenIndex, $event)"
             size="small"
             style="margin-bottom: 8px"
             hoverable
-            @click="selectToken(token)"
-            :class="{ active: selectedTokenId === token.id }"
+            @click="selectToken(gameToken)"
+            :class="{ active: selectedTokenId === gameToken.id }"
           >
             <n-space justify="space-between" align="center">
               <!-- Info -->
@@ -450,26 +455,27 @@
                   @dragstart.stop.prevent
                 >
                   <n-checkbox
-                    :checked="multiGameSelectedTokenIds.has(token.id)"
+                    :checked="multiGameSelectedTokenIds.has(gameToken.id)"
                     :disabled="isOpeningMultiGame"
-                    :aria-label="`选择 ${token.name} 批量进入游戏`"
+                    :aria-label="`选择 ${gameToken.name} 批量进入游戏`"
                     @click.stop
                     @update:checked="
-                      (checked) => setMultiGameTokenSelected(token.id, checked)
+                      (checked) =>
+                        setMultiGameTokenSelected(gameToken.id, checked)
                     "
                   />
                 </span>
                 <!-- 连接状态 - 移动到最前端显示 -->
                 <div style="min-width: 65px">
                   <a-badge
-                    :status="getTokenStyle(token.id)"
-                    :text="getConnectionStatusText(token.id)"
+                    :status="getTokenStyle(gameToken.id)"
+                    :text="getConnectionStatusText(gameToken.id)"
                   />
                 </div>
                 <!-- Avatar -->
                 <n-avatar
-                  v-if="token.avatar"
-                  :src="token.avatar"
+                  v-if="gameToken.avatar"
+                  :src="gameToken.avatar"
                   round
                   size="small"
                   fallback-src="/icons/xiaoyugan.png"
@@ -486,17 +492,17 @@
                     "
                   >
                     <span style="font-weight: bold; font-size: 0.95em">{{
-                      token.name
+                      gameToken.name
                     }}</span>
                     <n-tag
                       size="small"
-                      :type="getServerTagType(token.id)"
-                      v-if="token.server"
-                      >{{ token.server }}</n-tag
+                      :type="getServerTagType(gameToken.id)"
+                      v-if="gameToken.server"
+                      >{{ gameToken.server }}</n-tag
                     >
                     <!-- 备注信息 - 显示在服务器信息后面 -->
                     <div
-                      v-if="editingRemark === token.id"
+                      v-if="editingRemark === gameToken.id"
                       style="
                         font-size: 0.75em;
                         display: flex;
@@ -510,11 +516,11 @@
                         style="margin-right: 1px"
                       ></i>
                       <n-input
-                        v-model:value="tempRemarks[token.id]"
+                        v-model:value="tempRemarks[gameToken.id]"
                         size="small"
                         placeholder="添加备注..."
-                        @blur="saveRemark(token)"
-                        @keyup.enter="saveRemark(token)"
+                        @blur="saveRemark(gameToken)"
+                        @keyup.enter="saveRemark(gameToken)"
                         @keyup.esc="cancelEditRemark()"
                         autofocus
                         style="width: 150px"
@@ -533,18 +539,18 @@
                         align-items: center;
                         gap: 4px;
                       "
-                      @click.stop="startEditRemark(token)"
+                      @click.stop="startEditRemark(gameToken)"
                     >
                       <i
                         class="i-mdi:note-outline"
                         style="margin-right: 1px"
                       ></i>
-                      {{ token.remark || "点击添加备注" }}
-                      <n-icon
+                      {{ gameToken.remark || "点击添加备注" }}
+                      <NIcon
                         style="font-size: 0.8em; color: var(--text-tertiary)"
                       >
                         <Create />
-                      </n-icon>
+                      </NIcon>
                     </div>
                   </div>
                 </div>
@@ -556,23 +562,23 @@
                 <n-tag
                   size="small"
                   :type="
-                    token.importMethod === 'url' ||
-                    token.importMethod === 'bin' ||
-                    token.importMethod === 'wxQrcode' ||
-                    token.importMethod === 'mobile' ||
-                    token.importMethod === 'wxForceLogout' ||
-                    token.upgradedToPermanent
+                    gameToken.importMethod === 'url' ||
+                    gameToken.importMethod === 'bin' ||
+                    gameToken.importMethod === 'wxQrcode' ||
+                    gameToken.importMethod === 'mobile' ||
+                    gameToken.importMethod === 'wxForceLogout' ||
+                    gameToken.upgradedToPermanent
                       ? 'success'
                       : 'warning'
                   "
                 >
                   {{
-                    token.importMethod === "url" ||
-                    token.importMethod === "bin" ||
-                    token.importMethod === "wxQrcode" ||
-                    token.importMethod === "mobile" ||
-                    token.importMethod === "wxForceLogout" ||
-                    token.upgradedToPermanent
+                    gameToken.importMethod === "url" ||
+                    gameToken.importMethod === "bin" ||
+                    gameToken.importMethod === "wxQrcode" ||
+                    gameToken.importMethod === "mobile" ||
+                    gameToken.importMethod === "wxForceLogout" ||
+                    gameToken.upgradedToPermanent
                       ? "长期"
                       : "临时"
                   }}
@@ -582,23 +588,23 @@
                 <n-button
                   v-if="
                     !(
-                      token.importMethod === 'url' ||
-                      token.importMethod === 'bin' ||
-                      token.importMethod === 'wxQrcode' ||
-                      token.importMethod === 'mobile' ||
-                      token.importMethod === 'wxForceLogout' ||
-                      token.upgradedToPermanent
+                      gameToken.importMethod === 'url' ||
+                      gameToken.importMethod === 'bin' ||
+                      gameToken.importMethod === 'wxQrcode' ||
+                      gameToken.importMethod === 'mobile' ||
+                      gameToken.importMethod === 'wxForceLogout' ||
+                      gameToken.upgradedToPermanent
                     )
                   "
                   size="small"
                   type="success"
                   ghost
-                  @click.stop="upgradeTokenToPermanent(token)"
+                  @click.stop="upgradeTokenToPermanent(gameToken)"
                 >
                   <template #icon>
-                    <n-icon>
+                    <NIcon>
                       <Star />
-                    </n-icon>
+                    </NIcon>
                   </template>
                   升级
                 </n-button>
@@ -606,37 +612,37 @@
                 <n-button
                   size="small"
                   type="primary"
-                  :loading="connectingTokens.has(token.id)"
-                  @click.stop="startTaskManagement(token)"
+                  :loading="connectingTokens.has(gameToken.id)"
+                  @click.stop="startTaskManagement(gameToken)"
                 >
                   <template #icon>
-                    <n-icon>
+                    <NIcon>
                       <Home />
-                    </n-icon>
+                    </NIcon>
                   </template>
                   控制台
                 </n-button>
                 <n-button
                   size="small"
-                  @click.stop="refreshToken(token)"
-                  :loading="refreshingTokens.has(token.id)"
+                  @click.stop="refreshToken(gameToken)"
+                  :loading="refreshingTokens.has(gameToken.id)"
                 >
                   <template #icon>
-                    <n-icon>
+                    <NIcon>
                       <Refresh />
-                    </n-icon>
+                    </NIcon>
                   </template>
                   刷新
                 </n-button>
                 <n-dropdown
-                  :options="getTokenActions(token)"
-                  @select="(key) => handleTokenAction(key, token)"
+                  :options="getTokenActions(gameToken)"
+                  @select="(key) => handleTokenAction(key, gameToken)"
                 >
                   <n-button size="small" circle @click.stop>
                     <template #icon>
-                      <n-icon>
+                      <NIcon>
                         <EllipsisHorizontal />
-                      </n-icon>
+                      </NIcon>
                     </template>
                   </n-button>
                 </n-dropdown>
@@ -711,58 +717,54 @@
 </template>
 
 <script setup>
-import ManualTokenForm from "./manual.vue";
-import UrlTokenForm from "./url.vue";
-import BinTokenForm from "./bin.vue";
-import singleBinTokenForm from "./singlebin.vue";
-import WxQrcodeForm from "./wxqrcode.vue";
-import MobileTokenForm from "./mobile.vue";
-
-import { useTokenStore, selectedTokenId } from "@/stores/tokenStore";
 import {
   Add,
   Copy,
   Create,
   DownloadOutline,
   EllipsisHorizontal,
-  Grid,
-  List,
+  GameController,
   Home,
-  Key,
+  List,
   Menu,
   Refresh,
   Rocket,
   Star,
   SyncCircle,
   TrashBin,
-  GameController,
 } from "@vicons/ionicons5";
-import { NIcon, NAlert, useDialog, useMessage } from "naive-ui";
+import lz4 from "lz4js";
+import { NAlert, NIcon, useDialog, useMessage } from "naive-ui";
 import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { transformToken, scheduleAuthUserRequest } from "@/utils/token";
-import {
-  generateBinFromCombUser,
-  refreshTokenFromCombUser,
-  roleIndexFromServerId,
-} from "@/utils/wechatForceLogout";
+import useIndexedDB from "@/hooks/useIndexedDB";
+
+import { $emit } from "@/stores/events/index.ts";
+import { selectedTokenId, useTokenStore } from "@/stores/tokenStore";
 import {
   buildRoleBin,
   downloadBinFile,
   getBinPayload,
   getRoleBinFileName,
 } from "@/utils/binFile";
-import { $emit } from "@/stores/events/index.ts";
-import useIndexedDB from "@/hooks/useIndexedDB";
 import { prepareMultiGameLaunch } from "@/utils/gameLauncher";
 import {
   pruneTokenSelection,
   selectAllTokenIds,
   toggleTokenSelection,
 } from "@/utils/gameSelection";
-import lz4 from "lz4js";
-const { getArrayBuffer, storeArrayBuffer, deleteArrayBuffer, clearAll } =
-  useIndexedDB();
+import { scheduleAuthUserRequest, transformToken } from "@/utils/token";
+import {
+  generateBinFromCombUser,
+  refreshTokenFromCombUser,
+  roleIndexFromServerId,
+} from "@/utils/wechatForceLogout";
+import BinTokenForm from "./BinTokenForm.vue";
+import ManualTokenForm from "./ManualTokenForm.vue";
+import MobileTokenForm from "./MobileTokenForm.vue";
+import SingleBinTokenForm from "./SingleBinTokenForm.vue";
+import UrlTokenForm from "./UrlTokenForm.vue";
+import WxQrcodeForm from "./WxQrcodeForm.vue";
 // 接收路由参数
 const props = defineProps({
   token: String,
@@ -772,7 +774,7 @@ const props = defineProps({
   api: String,
   auto: Boolean,
 });
-
+const { getArrayBuffer, storeArrayBuffer, deleteArrayBuffer } = useIndexedDB();
 const router = useRouter();
 const message = useMessage();
 const dialog = useDialog();
@@ -786,8 +788,7 @@ const rateLimitMessage = ref("");
 const showImportForm = ref(false);
 const isImporting = ref(false);
 const showEditModal = ref(false);
-const importFormRef = ref(null);
-const urlFormRef = ref(null);
+
 const editFormRef = ref(null);
 const editingToken = ref(null);
 const importMethod = ref("manual");
@@ -1430,13 +1431,13 @@ const saveCurrentRemark = () => {
   const editingTokenId = editingRemark.value;
   const remark = tempRemarks.value[editingTokenId] || "";
   tokenStore.updateToken(editingTokenId, {
-    remark: remark,
+    remark,
   });
   editingRemark.value = null;
   message.success("备注已保存");
 };
 
-const saveRemark = (token) => {
+const saveRemark = () => {
   saveCurrentRemark();
 };
 
@@ -1536,7 +1537,7 @@ const refreshAllTokens = async () => {
           message.info(`${manualTokens.length} 个手动导入的Token需要手动刷新`);
         }
       } catch (error) {
-        message.error("批量刷新过程中发生错误: " + error.message);
+        message.error(`批量刷新过程中发生错误: ${error.message}`);
       }
     },
   });
@@ -1709,7 +1710,7 @@ const updateAllTokenInfo = async () => {
           );
         }
       } catch (error) {
-        message.error("更新过程中发生错误: " + error.message);
+        message.error(`更新过程中发生错误: ${error.message}`);
       }
     },
   });
@@ -1719,7 +1720,7 @@ const maskToken = (token) => {
   if (!token) return "";
   const len = token.length;
   if (len <= 8) return token;
-  return token.substring(0, 4) + "***" + token.substring(len - 4);
+  return `${token.substring(0, 4)}***${token.substring(len - 4)}`;
 };
 
 const formatTime = (timestamp) => {
@@ -1768,7 +1769,7 @@ function xDecrypt(buf) {
   const e = new Uint8Array(buf);
   const t = extractKey(e);
   const out = new Uint8Array(e);
-  for (let n = out.length; --n >= 4; ) out[n] ^= t;
+  for (let n = out.length; --n >= 4;) out[n] ^= t;
   return out.subarray(4);
 }
 
@@ -1777,7 +1778,7 @@ function lxEncrypt(plain) {
   const out = new Uint8Array(compressed.length);
   out.set(compressed);
   const r = 2 + ~~(Math.random() * 248);
-  for (let n = Math.min(out.length, 100); --n >= 0; ) out[n] ^= r;
+  for (let n = Math.min(out.length, 100); --n >= 0;) out[n] ^= r;
   out[0] = 112; // 'p'
   out[1] = 108; // 'l'
   encodeKey(out, r);
@@ -1798,7 +1799,8 @@ function convertBinToLx(buf) {
 }
 
 async function openSelectedGames() {
-  if (selectedMultiGameTokens.value.length === 0 || isOpeningMultiGame.value) return;
+  if (selectedMultiGameTokens.value.length === 0 || isOpeningMultiGame.value)
+    return;
   const tokensToOpen = [...selectedMultiGameTokens.value];
   isOpeningMultiGame.value = true;
   try {
@@ -1843,7 +1845,7 @@ const openGame = async () => {
   const hex = Array.from(converted)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  localStorage.setItem("bin_data_" + token.id, hex);
+  localStorage.setItem(`bin_data_${token.id}`, hex);
   localStorage.setItem("current_bin_id", token.id);
   let binList = [];
   try {
@@ -1854,7 +1856,7 @@ const openGame = async () => {
       id: token.id,
       name: token.name || "Token",
       byteLength: binData.byteLength,
-      size: (binData.byteLength / 1024).toFixed(1) + " KB",
+      size: `${(binData.byteLength / 1024).toFixed(1)} KB`,
       order: binList.length,
     });
     localStorage.setItem("bin_file_list", JSON.stringify(binList));
@@ -2707,3 +2709,10 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 </style>
+
+<route lang="json">
+{
+  "name": "/TokenImport/",
+  "path": "/TokenImport"
+}
+</route>

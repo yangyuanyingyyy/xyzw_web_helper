@@ -16,19 +16,20 @@
       <span class="toolbar-warning">
         在窗口标题栏滚动可横向浏览；按住 Ctrl + 滚轮缩放页面，可同时查看更多账号
       </span>
-      <n-popover trigger="hover" placement="bottom-end" :width="360">
+      <NPopover trigger="hover" placement="bottom-end" :width="360">
         <template #trigger>
           <button class="crash-help-trigger" type="button">页面崩溃？</button>
         </template>
         <div class="crash-help-content">
           <strong>多开内存提示</strong>
           <p>
-            同时开启多个游戏会占用大量内存。若系统仍有可用内存但页面提示
-            Out of Memory，可能是 32 位浏览器的进程内存限制，建议升级到 64
-            位浏览器。
+            同时开启多个游戏会占用大量内存。若系统仍有可用内存但页面提示 Out of
+            Memory，可能是 32 位浏览器的进程内存限制，建议升级到 64 位浏览器。
           </p>
           <p>
-            查看方法：在 Chrome 地址栏输入 <code>chrome://version</code>，检查版本或操作系统信息是否显示 64 位。
+            查看方法：在 Chrome 地址栏输入
+            <code>chrome://version</code>，检查版本或操作系统信息是否显示 64
+            位。
           </p>
           <a
             href="https://support.google.com/chrome/a/answer/7650032?hl=zh-Hans"
@@ -38,7 +39,7 @@
             下载 Chrome 官方 Windows 64 位捆绑包
           </a>
         </div>
-      </n-popover>
+      </NPopover>
     </header>
 
     <main
@@ -222,11 +223,13 @@ const skippedSummary = computed(() => {
 });
 
 function failureReason(reason) {
-  return {
-    "missing-bin": "缺少 BIN 数据",
-    "read-failed": "读取 BIN 失败",
-    "convert-failed": "转换 BIN 失败",
-  }[reason] || "准备失败";
+  return (
+    {
+      "missing-bin": "缺少 BIN 数据",
+      "read-failed": "读取 BIN 失败",
+      "convert-failed": "转换 BIN 失败",
+    }[reason] || "准备失败"
+  );
 }
 
 function readLaunchSafely() {
@@ -380,13 +383,11 @@ async function moveFrame(scopeId, direction, event) {
     const desiredScrollLeft =
       strip.scrollLeft + button.getBoundingClientRect().left - previousLeft;
     const maxScrollLeft = Math.max(0, strip.scrollWidth - strip.clientWidth);
-    strip.scrollLeft = Math.min(
-      maxScrollLeft,
-      Math.max(0, desiredScrollLeft),
-    );
+    strip.scrollLeft = Math.min(maxScrollLeft, Math.max(0, desiredScrollLeft));
     stripScrollTarget = strip.scrollLeft;
   } catch (error) {
     console.error("Unable to move MultiGame frame:", error);
+    // eslint-disable-next-line no-alert -- Preserve the existing native notification or confirmation flow.
     window.alert("移动游戏窗口失败，请重试");
   } finally {
     movingFrame.value = false;
@@ -406,6 +407,7 @@ function closeFrame(frame) {
     launch.value = updatedLaunch;
   } catch (error) {
     console.error("Unable to close MultiGame frame:", error);
+    // eslint-disable-next-line no-alert -- Preserve the existing native notification or confirmation flow.
     window.alert("关闭游戏窗口失败，请重试");
   }
 }
@@ -428,7 +430,9 @@ function goToTokens() {
 }
 
 onBeforeMount(() => window.addEventListener("message", handleMessage));
-onMounted(() => frames.value.forEach((frame) => armFrameTimeout(frame.scopeId)));
+onMounted(() =>
+  frames.value.forEach((frame) => armFrameTimeout(frame.scopeId)),
+);
 onUnmounted(() => {
   window.removeEventListener("message", handleMessage);
   stopStripScrollAnimation();
@@ -503,7 +507,6 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-
 .crash-help-trigger {
   flex: none;
   padding: 3px 7px;
@@ -547,8 +550,7 @@ onUnmounted(() => {
 
 .game-panel {
   box-sizing: border-box;
-  flex: 0 0
-    min(clamp(360px, 32vw, 480px), calc((100dvh - 112px) * 9 / 16));
+  flex: 0 0 min(clamp(360px, 32vw, 480px), calc((100dvh - 112px) * 9 / 16));
   min-width: 0;
   height: auto;
   overflow: hidden;
