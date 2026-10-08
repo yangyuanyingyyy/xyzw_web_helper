@@ -1726,7 +1726,8 @@
         <n-alert type="info" show-icon style="margin-bottom: 12px">
           这里保存的是要下发到游戏服务器的黑市采购清单。每条填写 `itemId`
           和折扣，折扣范围
-          1-10；保存后需手动执行“一键配置黑市清单”才会真正写入服务器。
+          1-10；采购次数为整张清单共用（仅接受 1-15 的整数，留空则不改动账号当前次数）；
+          保存后需手动执行“一键配置黑市清单”才会真正写入服务器。
         </n-alert>
 
         <div style="display: flex; gap: 12px; margin-bottom: 12px">
@@ -1746,6 +1747,28 @@
           优先从下拉框选择常用物品，系统会自动填入
           `itemId`、备注和推荐折扣；如果下拉里没有，再手动填写 `itemId`。
         </n-alert>
+
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+          "
+        >
+          <span style="white-space: nowrap">采购次数：</span>
+          <n-input-number
+            v-model:value="blackMarketPurchaseCnt"
+            placeholder="留空 = 沿用账号当前值"
+            :precision="0"
+            :show-button="true"
+            style="width: 220px"
+          />
+          <span style="color: #9ca3af; font-size: 12px">
+            整张清单共用，仅接受 1~{{ MAX_PURCHASE_CNT }}
+            的整数（其它值无法保存）；留空表示不改动账号当前次数
+          </span>
+        </div>
 
         <div
           v-for="(item, itemIndex) in blackMarketPurchaseList"
@@ -3127,6 +3150,8 @@ import {
   blackMarketItemCatalog,
   createBlackMarketPurchaseEntry,
   defaultBlackMarketPurchaseList,
+  MAX_PURCHASE_CNT,
+  normalizeBlackMarketPurchaseCnt,
   normalizeBlackMarketPurchaseList,
 } from "@/utils/batch/blackMarketConfig";
 import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
@@ -3687,6 +3712,8 @@ const blackMarketItemOptions = blackMarketItemCatalog.map((item) => ({
 const batchSettings = reactive({
   dreamPurchaseList: defaultDreamPurchaseList,
   blackMarketPurchaseList: createDefaultBlackMarketPurchaseList(),
+  // 黑市采购次数：null = 不改动账号当前次数（留空即沿用服务器现值）
+  blackMarketPurchaseCnt: null,
   boxCount: 100,
   fishCount: 100,
   recruitCount: 100,
@@ -3729,6 +3756,10 @@ const loadBatchSettings = () => {
       batchSettings.blackMarketPurchaseList?.length
         ? batchSettings.blackMarketPurchaseList
         : createDefaultBlackMarketPurchaseList(),
+    );
+    // 次数：留空/越界一律归为 null（沿用服务器现值），避免脏数据被下发
+    batchSettings.blackMarketPurchaseCnt = normalizeBlackMarketPurchaseCnt(
+      batchSettings.blackMarketPurchaseCnt,
     );
   } catch (error) {
     console.error("Failed to load batch settings:", error);
@@ -4251,6 +4282,7 @@ const exportConfig = () => {
         defaultBoxType: batchSettings.defaultBoxType,
         defaultFishType: batchSettings.defaultFishType,
         blackMarketPurchaseList: batchSettings.blackMarketPurchaseList,
+        blackMarketPurchaseCnt: batchSettings.blackMarketPurchaseCnt,
         commandDelay: batchSettings.commandDelay,
         taskDelay: batchSettings.taskDelay,
         actionDelay: batchSettings.actionDelay,
@@ -4358,6 +4390,9 @@ const importConfig = async ({ file }) => {
                 ? batchSettings.blackMarketPurchaseList
                 : createDefaultBlackMarketPurchaseList(),
             );
+          batchSettings.blackMarketPurchaseCnt = normalizeBlackMarketPurchaseCnt(
+            batchSettings.blackMarketPurchaseCnt,
+          );
           saveBatchSettings();
         }
 
@@ -5289,6 +5324,8 @@ const dreamBuyList = ref([]);
 // Black Market Purchase Modal Logic
 const showBlackMarketPurchaseModal = ref(false);
 const blackMarketPurchaseList = ref(createDefaultBlackMarketPurchaseList());
+// 采购次数：null = 留空，表示不改动账号当前次数（沿用服务器现值）
+const blackMarketPurchaseCnt = ref(null);
 
 const openBlackMarketPurchaseModal = () => {
   blackMarketPurchaseList.value = normalizeBlackMarketPurchaseList(
@@ -5296,6 +5333,10 @@ const openBlackMarketPurchaseModal = () => {
       ? batchSettings.blackMarketPurchaseList
       : createDefaultBlackMarketPurchaseList(),
   ).map((item) => ({ ...item }));
+
+  blackMarketPurchaseCnt.value = normalizeBlackMarketPurchaseCnt(
+    batchSettings.blackMarketPurchaseCnt,
+  );
 
   showBlackMarketPurchaseModal.value = true;
 };
@@ -5329,11 +5370,27 @@ const saveBlackMarketPurchaseConfig = () => {
     return;
   }
 
+  const rawCnt = blackMarketPurchaseCnt.value;
+  const isCntBlank = rawCnt === null || rawCnt === undefined || rawCnt === "";
+  // 填了但不在 1~15 之内：视为无效输入，直接拒绝保存（不允许越界值下发到服务器）
+  const normalizedCnt = normalizeBlackMarketPurchaseCnt(rawCnt);
+  if (!isCntBlank && normalizedCnt === null) {
+    message.error(
+      `采购次数需为 1~${MAX_PURCHASE_CNT} 的整数；留空表示沿用账号当前次数`,
+    );
+    return;
+  }
+
   batchSettings.blackMarketPurchaseList = normalized;
+  batchSettings.blackMarketPurchaseCnt = normalizedCnt;
   saveBatchSettings();
 
   showBlackMarketPurchaseModal.value = false;
-  message.success("黑市采购清单已保存");
+  message.success(
+    normalizedCnt === null
+      ? "黑市采购清单已保存（不改动采购次数）"
+      : `黑市采购清单已保存（采购次数 ${normalizedCnt}）`,
+  );
 };
 
 const openDreamBuyModal = () => {

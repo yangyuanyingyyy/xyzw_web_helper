@@ -52,6 +52,26 @@ const clampDiscount = (value) => {
   return Math.min(10, Math.max(1, Math.trunc(numeric)));
 };
 
+/** 黑市采购次数可配置区间（服务端只接受 1~15，其它值视为无效） */
+export const MIN_PURCHASE_CNT = 1;
+export const MAX_PURCHASE_CNT = 15;
+
+/**
+ * 归一化黑市采购次数。
+ * 约定：留空 / 非法 / 越界一律返回 null，表示「不改动账号当前次数」，
+ * 而不是回落到默认值——避免用户未配置时被动覆盖服务器现值。
+ * @param {*} value UI 或本地存储里的原始值
+ * @returns {number|null} 1~15 的整数；留空或无效时为 null
+ */
+export const normalizeBlackMarketPurchaseCnt = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const integer = Math.trunc(numeric);
+  if (integer < MIN_PURCHASE_CNT || integer > MAX_PURCHASE_CNT) return null;
+  return integer;
+};
+
 export const normalizeBlackMarketPurchaseList = (rawList = []) => {
   if (!Array.isArray(rawList)) return [];
 
@@ -91,4 +111,30 @@ export const compareBlackMarketPurchaseLists = (
   const left = JSON.stringify(toStorePurchaseItemList(leftList));
   const right = JSON.stringify(toStorePurchaseItemList(rightList));
   return left === right;
+};
+
+/**
+ * 黑市配置（采购次数 + 采购清单）联合比对。
+ * configured.purchaseCnt 为 null / 留空时表示「不改动次数」，此时只比对清单，
+ * 与甲方案（留空即沿用服务器现值）保持一致。
+ * @param {{purchaseCnt?:number, purchaseItemList?:Array}} currentConfig 服务器返回的现值
+ * @param {{purchaseCnt?:*, purchaseItemList?:Array}} configured 本地目标配置
+ * @returns {boolean} 次数（若需改动）与清单全部一致时为 true
+ */
+export const compareBlackMarketPurchaseConfigs = (
+  currentConfig = {},
+  configured = {},
+) => {
+  const configuredCnt = normalizeBlackMarketPurchaseCnt(configured.purchaseCnt);
+  const cntMatched =
+    configuredCnt === null ||
+    Number(currentConfig.purchaseCnt) === configuredCnt;
+
+  return (
+    cntMatched &&
+    compareBlackMarketPurchaseLists(
+      currentConfig.purchaseItemList,
+      configured.purchaseItemList,
+    )
+  );
 };

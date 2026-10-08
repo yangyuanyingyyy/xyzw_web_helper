@@ -5,7 +5,8 @@
  */
 
 import {
-  compareBlackMarketPurchaseLists,
+  compareBlackMarketPurchaseConfigs,
+  normalizeBlackMarketPurchaseCnt,
   normalizeBlackMarketPurchaseList,
   toStorePurchaseItemList,
 } from "./blackMarketConfig";
@@ -37,6 +38,13 @@ export function createTasksStore(deps) {
   const getBlackMarketPurchaseConfig = () =>
     normalizeBlackMarketPurchaseList(batchSettings.blackMarketPurchaseList);
 
+  /**
+   * 本地配置的黑市采购次数。
+   * null = 用户留空，表示不改动账号当前次数（甲方案：沿用服务器现值）。
+   */
+  const getBlackMarketPurchaseCnt = () =>
+    normalizeBlackMarketPurchaseCnt(batchSettings.blackMarketPurchaseCnt);
+
   const readBlackMarketPurchaseConfig = async (tokenId) => {
     const result = await tokenStore.sendMessageWithPromise(
       tokenId,
@@ -55,6 +63,7 @@ export function createTasksStore(deps) {
 
   const updateBlackMarketPurchaseConfig = async (tokenId, tokenName) => {
     const configuredPurchaseList = getBlackMarketPurchaseConfig();
+    const configuredPurchaseCnt = getBlackMarketPurchaseCnt();
 
     if (configuredPurchaseList.length === 0) {
       throw new Error("未配置黑市采购清单");
@@ -70,15 +79,19 @@ export function createTasksStore(deps) {
 
     addLog({
       time: new Date().toLocaleTimeString(),
-      message: `${tokenName} 当前黑市清单: ${currentPurchaseConfig.purchaseItemList.length} 项，共 ${currentPurchaseConfig.purchaseCnt} 次`,
+      message:
+        `${tokenName} 当前黑市清单: ${currentPurchaseConfig.purchaseItemList.length} 项，共 ${currentPurchaseConfig.purchaseCnt} 次` +
+        (configuredPurchaseCnt === null
+          ? "（本地未指定次数，保持账号现值）"
+          : `（本地目标 ${configuredPurchaseCnt} 次）`),
       type: "info",
     });
 
     if (
-      compareBlackMarketPurchaseLists(
-        currentPurchaseConfig.purchaseItemList,
-        configuredPurchaseList,
-      )
+      compareBlackMarketPurchaseConfigs(currentPurchaseConfig, {
+        purchaseCnt: configuredPurchaseCnt,
+        purchaseItemList: configuredPurchaseList,
+      })
     ) {
       addLog({
         time: new Date().toLocaleTimeString(),
@@ -89,12 +102,15 @@ export function createTasksStore(deps) {
       return;
     }
 
-    const purchaseCnt = Math.max(1, currentPurchaseConfig.purchaseCnt || 1);
+    // 甲方案：本地填了次数就用本地值，留空则沿用服务器返回的现值
+    const purchaseCnt =
+      configuredPurchaseCnt ??
+      Math.max(1, currentPurchaseConfig.purchaseCnt || 1);
     const purchaseItemList = toStorePurchaseItemList(configuredPurchaseList);
 
     addLog({
       time: new Date().toLocaleTimeString(),
-      message: `${tokenName} 正在下发黑市采购清单...`,
+      message: `${tokenName} 正在下发黑市采购清单（共 ${purchaseCnt} 次）...`,
       type: "info",
     });
 
@@ -113,17 +129,20 @@ export function createTasksStore(deps) {
     const verifiedPurchaseConfig = await readBlackMarketPurchaseConfig(tokenId);
 
     if (
-      !compareBlackMarketPurchaseLists(
-        verifiedPurchaseConfig.purchaseItemList,
-        configuredPurchaseList,
-      )
+      !compareBlackMarketPurchaseConfigs(verifiedPurchaseConfig, {
+        purchaseCnt: configuredPurchaseCnt,
+        purchaseItemList: configuredPurchaseList,
+      })
     ) {
       throw new Error("黑市采购清单写回后校验失败");
     }
 
     addLog({
       time: new Date().toLocaleTimeString(),
-      message: `${tokenName} 黑市采购清单已更新 ${purchaseItemList.length} 项`,
+      message:
+        `${tokenName} 黑市采购清单已更新 ${purchaseItemList.length} 项` +
+        `，采购次数 ${verifiedPurchaseConfig.purchaseCnt}` +
+        (configuredPurchaseCnt === null ? "（沿用账号现值）" : ""),
       type: "success",
     });
   };
