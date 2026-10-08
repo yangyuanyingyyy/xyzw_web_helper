@@ -671,6 +671,18 @@ export function createTasksApex(deps) {
               skipCount++;
               continue;
             }
+            // 200160 模块未开启：该账号未解锁逐鹿盐山功能，
+            // 后续任务必然同样报错，直接结束该账号
+            const isModuleClosed =
+              error?.message?.includes("200160") === true;
+            if (isModuleClosed) {
+              addLog({
+                time: new Date().toLocaleTimeString(),
+                message: `${token.name} 逐鹿盐山功能模块未开启，跳过该账号`,
+                type: "warning",
+              });
+              break;
+            }
             failCount++;
             addLog({
               time: new Date().toLocaleTimeString(),

@@ -300,3 +300,27 @@ test("no getroleinfo request is needed before claiming", async () => {
   assert.equal(requests.includes("apex_getroleinfo"), false);
   assert.equal(requests.filter((c) => c === "apex_taskclaim").length, 7);
 });
+
+test("server code 200160 module-closed stops the account immediately", async () => {
+  const { createTasksApex } = await loadVote(baseRules());
+  const claims = [];
+  const logs = [];
+  const deps = baseDeps(async (_id, cmd, params) => {
+    if (cmd === "apex_getroleinfo") {
+      return { apexRoleInfo: { taskClaimedMap: {}, resetTime: { season: 1 } } };
+    }
+    if (cmd === "apex_taskclaim") {
+      claims.push(params.confId);
+      // 首个任务即返回 200160（模块未开启）
+      throw new Error("服务器错误: 200160 - 模块未开启");
+    }
+    throw new Error(`unexpected command: ${cmd}`);
+  });
+  deps.addLog = (entry) => logs.push(entry.message);
+  await createTasksApex(deps).batchApexTaskClaim();
+  // 只发了 1 次请求即终止，不再尝试后续任务
+  assert.deepEqual(claims, [1]);
+  assert.equal(deps.tokenStatus.value.test, "completed");
+  // 有模块未开启的警告提示
+  assert.equal(logs.some((m) => m.includes("逐鹿盐山功能模块未开启")), true);
+});
