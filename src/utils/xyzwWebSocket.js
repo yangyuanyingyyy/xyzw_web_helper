@@ -431,7 +431,8 @@ export function registerDefaultCommands(reg) {
     .register("apex_get64oppomap", { scheduleId: 0, groupId: 0 })
     // —— APEX 逐鹿盐山：按需注册，仅登记组件实际调用的命令 ——
     .register("apex_getvotelist")
-    .register("apex_vote", { round: 0, teamId: "" });
+    .register("apex_vote", { round: 0, teamId: "" })
+    .register("apex_taskclaim", { confId: 1 });
   registry.commands.set(
     "fight_startareaarena",
     (ack = 0, seq = 0, params = {}) => {

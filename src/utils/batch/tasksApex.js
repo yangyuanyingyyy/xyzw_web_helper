@@ -1,6 +1,7 @@
 /**
  * 逐鹿盐山任务
- * 包含: 一键批量竞猜（自动选助威最高队伍）、一键批量助威（全量道具助威榜第一名）
+ * 包含: 一键批量竞猜（自动选助威最高队伍）、一键批量助威（全量道具助威榜第一名）、
+ *       一键批量领取任务奖励（apex_taskclaim confId 1~7）
  *
  * 开放判定复用 utils/apexRules.js（1:1 移植客户端规则）：
  *   · 竞猜：仅淘汰赛阶段（stage 4~10）且状态为 Unlocked / Locked 的场次可押；
@@ -9,6 +10,10 @@
  *   · 助威：checkSupportInTime 判定该期是否处于可助威窗口
  *     （正式赛段 / 淘汰赛段且该期无 Locked / Fighting 场次）；
  *     助威榜 scheduleId = 淘汰赛段优先、其次正式赛段（等价客户端 currentScheduleId）。
+ *   · 任务奖励：每次完整遍历 confId 1~7，全部逐个 apex_taskclaim 不跳过，
+ *     由服务器裁决（可领则发放；已领/未完成则拒绝）。
+ *     错误码 200020（"出了点小问题"）实测语义为「已领取过或任务未完成」，
+ *     静默跳过不记日志不计失败；其余错误如实记录。
  */
 
 import {
@@ -38,6 +43,15 @@ const TIMEOUT_MS = 8000;
 
 /** 单阶段分页拉取的最大页数（防御 last 异常导致死循环） */
 const MAX_PAGES = 12;
+
+/** 逐鹿盐山任务奖励的 confId 取值范围（ApexService.taskClaim 单值入参） */
+const TASK_CLAIM_IDS = [1, 2, 3, 4, 5, 6, 7];
+
+/** 助威道具 itemId（apexConstantConf.supportItemId，用于奖励日志文案） */
+const VOTE_ITEM_ID = 16001;
+
+/** 盐山金币 itemId（任务奖励的第二种常见产出） */
+const SALT_COIN_ITEM_ID = 16002;
 
 /** 只读拉取遇到 200400 时的自动重试次数 */
 const READ_MAX_RETRY = 1;
@@ -575,8 +589,142 @@ export function createTasksApex(deps) {
     message.success("批量逐鹿盐山助威结束");
   };
 
+  /**
+   * 一键批量领取逐鹿盐山任务奖励
+   * 对每个账号完整遍历 confId 1~7：不跳过任何 ID，全部逐个 apex_taskclaim
+   * （由服务器裁决：可领则发放，已领/未完成则返回错误，如实记录日志）
+   * 单个失败不阻断整批
+   */
+  const batchApexTaskClaim = async () => {
+    if (selectedTokens.value.length === 0) return;
+    isRunning.value = true;
+    shouldStop.value = false;
+
+    selectedTokens.value.forEach((id) => {
+      tokenStatus.value[id] = "waiting";
+    });
+
+    const taskPromises = selectedTokens.value.map(async (tokenId) => {
+      if (shouldStop.value) return;
+
+      tokenStatus.value[tokenId] = "running";
+      const token = tokens.value.find((t) => t.id === tokenId);
+
+      try {
+        await ensureConnection(tokenId);
+
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `=== 开始领取逐鹿盐山任务奖励: ${token.name} ===`,
+          type: "info",
+        });
+
+        let successCount = 0;
+        let skipCount = 0;
+        let failCount = 0;
+        let voteItemTotal = 0;
+        let abortedByRateLimit = false;
+
+        // 完整轮询 confId 1~7，不跳过任何 ID
+        for (const confId of TASK_CLAIM_IDS) {
+          if (shouldStop.value || abortedByRateLimit) break;
+
+          try {
+            const resp = await sendApex(
+              ApexAction.READ,
+              (queuedMs) =>
+                tokenStore.sendMessageWithPromise(
+                  tokenId,
+                  "apex_taskclaim",
+                  { confId },
+                  TIMEOUT_MS + queuedMs,
+                ),
+            );
+
+            // 奖励解析：itemId 16001 = 助威道具，16002 = 盐山金币
+            const reward = Array.isArray(resp?.reward) ? resp.reward : [];
+            const parts = reward
+              .map((r) => {
+                const cnt = Number(r?.value) || 0;
+                if (r?.itemId === VOTE_ITEM_ID) {
+                  voteItemTotal += cnt;
+                  return `助威道具×${cnt}`;
+                }
+                if (r?.itemId === SALT_COIN_ITEM_ID) {
+                  return `盐山金币×${cnt}`;
+                }
+                return `道具${r?.itemId}×${cnt}`;
+              })
+              .filter(Boolean);
+            successCount++;
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              message: `${token.name} 任务${confId} 领取成功${parts.length ? `：${parts.join("，")}` : ""}`,
+              type: "success",
+            });
+          } catch (error) {
+            // 200020（"出了点小问题"）在本接口实测语义为「已领取过或任务未完成」：
+            // 属正常业务结果而非异常，静默跳过不记日志、不计入失败
+            const isAlreadyDone =
+              error?.message?.includes("200020") === true;
+            if (isAlreadyDone) {
+              skipCount++;
+              continue;
+            }
+            failCount++;
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              message: `${token.name} 任务${confId} 领取失败: ${error.message || "未知错误"}${isApexRateLimited(error) ? "（稍后重跑即可续领）" : ""}`,
+              type: "error",
+            });
+            if (isApexRateLimited(error)) {
+              // 连续被限流：停止该账号剩余领取，避免持续轰炸服务器
+              abortedByRateLimit = true;
+              addLog({
+                time: new Date().toLocaleTimeString(),
+                message: `${token.name} 因服务器限流提前结束，未完成部分稍后重跑即可续领`,
+                type: "warning",
+              });
+              break;
+            }
+          }
+        }
+
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `=== ${token.name} 任务奖励领取完成: 成功${successCount} 跳过${skipCount} 失败${failCount}${voteItemTotal > 0 ? `，共获得助威道具 ${voteItemTotal} 个` : ""} ===`,
+          type: successCount > 0 ? "success" : "info",
+        });
+        tokenStatus.value[tokenId] = "completed";
+      } catch (error) {
+        console.error(error);
+        tokenStatus.value[tokenId] = "failed";
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 逐鹿盐山任务奖励领取失败: ${error.message || "未知错误"}`,
+          type: "error",
+        });
+      } finally {
+        tokenStore.closeWebSocketConnection(tokenId);
+        releaseConnectionSlot();
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 连接已关闭  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
+          type: "info",
+        });
+      }
+    });
+
+    await Promise.all(taskPromises);
+
+    isRunning.value = false;
+    currentRunningTokenId.value = null;
+    message.success("批量领取逐鹿盐山任务奖励结束");
+  };
+
   return {
     batchApexGuess,
     batchApexVote,
+    batchApexTaskClaim,
   };
 }

@@ -506,6 +506,13 @@
                 >
                   一键逐鹿盐山助威
                 </n-button>
+                <n-button
+                  size="small"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                  @click="batchApexTaskClaim()"
+                >
+                  一键领取盐山任务奖励
+                </n-button>
               </n-space>
             </n-tab-pane>
             <n-tab-pane name="baoku" tab="宝库">
@@ -6225,7 +6232,7 @@ const tasksFootball = createTasksFootball(createTaskDeps());
 const { batchFootballBet } = tasksFootball;
 
 const tasksApex = createTasksApex(createTaskDeps());
-const { batchApexGuess, batchApexVote } = tasksApex;
+const { batchApexGuess, batchApexVote, batchApexTaskClaim } = tasksApex;
 
 const tasksCampChallenge = createTasksCampChallenge(createTaskDeps());
 const { batchCampChallenge, batchCampChallengePet, batchCampClaimTasks } =

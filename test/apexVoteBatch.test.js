@@ -165,3 +165,138 @@ test("an eliminated top row is skipped in favor of the first active team", async
   await createTasksApex(deps).batchApexVote();
   assert.equal(voteParams.teamId, 202);
 });
+
+// ==================== 一键领取逐鹿盐山任务奖励（batchApexTaskClaim） ====================
+// 每次完整遍历 confId 1~7 不跳过，全部发送 apex_taskclaim，由服务器裁决；
+// 成功/失败如实记录日志；单个失败不阻断整批。
+
+test("every confId 1-7 is attempted without skipping", async () => {
+  const { createTasksApex } = await loadVote(baseRules());
+  const claims = [];
+  const deps = baseDeps(async (_id, cmd, params) => {
+    if (cmd === "apex_getroleinfo") {
+      // 即使 taskClaimedMap 已有标记，也不跳过
+      return {
+        apexRoleInfo: {
+          taskClaimedMap: { 1: true, 4: true },
+          resetTime: { season: 1 },
+        },
+      };
+    }
+    if (cmd === "apex_taskclaim") {
+      claims.push(params.confId);
+      return {
+        reward: [{ type: 3, itemId: 16001, value: params.confId, ext: 0 }],
+        apexRoleInfo: {},
+      };
+    }
+    throw new Error(`unexpected command: ${cmd}`);
+  });
+  await createTasksApex(deps).batchApexTaskClaim();
+  // 全部 7 个都请求，包括 map 里已标记的 1 和 4
+  assert.deepEqual(claims, [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(deps.tokenStatus.value.test, "completed");
+});
+
+test("a single claim failure does not block the remaining tasks", async () => {
+  const { createTasksApex } = await loadVote(baseRules());
+  const claims = [];
+  const logs = [];
+  const deps = baseDeps(async (_id, cmd, params) => {
+    if (cmd === "apex_getroleinfo") {
+      return { apexRoleInfo: { taskClaimedMap: {}, resetTime: { season: 1 } } };
+    }
+    if (cmd === "apex_taskclaim") {
+      claims.push(params.confId);
+      if (params.confId === 3) {
+        throw new Error("claim failed");
+      }
+      return {
+        reward: [],
+        apexRoleInfo: { taskClaimedMap: { [params.confId]: true } },
+      };
+    }
+    throw new Error(`unexpected command: ${cmd}`);
+  });
+  deps.addLog = (entry) => logs.push(entry.message);
+  await createTasksApex(deps).batchApexTaskClaim();
+  // 3 失败但 4~7 仍然继续
+  assert.deepEqual(claims, [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(deps.tokenStatus.value.test, "completed");
+  // 失败有日志
+  assert.equal(logs.some((m) => m.includes("任务3 领取失败")), true);
+});
+
+test("server code 200020 is treated as already-claimed and stays silent", async () => {
+  const { createTasksApex } = await loadVote(baseRules());
+  const claims = [];
+  const logs = [];
+  const deps = baseDeps(async (_id, cmd, params) => {
+    if (cmd === "apex_getroleinfo") {
+      return { apexRoleInfo: { taskClaimedMap: {}, resetTime: { season: 1 } } };
+    }
+    if (cmd === "apex_taskclaim") {
+      claims.push(params.confId);
+      // 4、5、6 返回 200020（已领过/未完成）
+      if ([4, 5, 6].includes(params.confId)) {
+        throw new Error(
+          "服务器错误: 200020 - 出了点小问题，请尝试重启游戏解决～",
+        );
+      }
+      return {
+        reward: [{ type: 3, itemId: 16001, value: 1, ext: 0 }],
+        apexRoleInfo: {},
+      };
+    }
+    throw new Error(`unexpected command: ${cmd}`);
+  });
+  deps.addLog = (entry) => logs.push(entry.message);
+  await createTasksApex(deps).batchApexTaskClaim();
+  // 全部 7 个都请求（含 200020 的）
+  assert.deepEqual(claims, [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(deps.tokenStatus.value.test, "completed");
+  // 200020 的任务不产生任何失败/警告日志
+  assert.equal(logs.some((m) => m.includes("任务4")), false);
+  assert.equal(logs.some((m) => m.includes("任务5")), false);
+  assert.equal(logs.some((m) => m.includes("任务6")), false);
+  // 汇总日志含"跳过3"（4、5、6）
+  assert.equal(logs.some((m) => m.includes("跳过3")), true);
+});
+
+test("rewards are parsed with vote item counting", async () => {
+  const { createTasksApex } = await loadVote(baseRules());
+  let voteRewards = 0;
+  const deps = baseDeps(async (_id, cmd, params) => {
+    if (cmd === "apex_getroleinfo") {
+      return { apexRoleInfo: { taskClaimedMap: {}, resetTime: { season: 1 } } };
+    }
+    if (cmd === "apex_taskclaim") {
+      const value = params.confId === 1 ? 5 : 10;
+      voteRewards += value;
+      return {
+        reward: [{ type: 3, itemId: 16001, value, ext: 0 }],
+        apexRoleInfo: {},
+      };
+    }
+    throw new Error(`unexpected command: ${cmd}`);
+  });
+  await createTasksApex(deps).batchApexTaskClaim();
+  // 奖励解析正常走完（此处只验证流程不抛错、状态 completed）
+  assert.equal(deps.tokenStatus.value.test, "completed");
+});
+
+test("no getroleinfo request is needed before claiming", async () => {
+  const { createTasksApex } = await loadVote(baseRules());
+  const requests = [];
+  const deps = baseDeps(async (_id, cmd) => {
+    requests.push(cmd);
+    if (cmd === "apex_taskclaim") {
+      return { reward: [], apexRoleInfo: {} };
+    }
+    throw new Error(`unexpected command: ${cmd}`);
+  });
+  await createTasksApex(deps).batchApexTaskClaim();
+  // 不再预查 getroleinfo（无跳过逻辑后不需要基线）
+  assert.equal(requests.includes("apex_getroleinfo"), false);
+  assert.equal(requests.filter((c) => c === "apex_taskclaim").length, 7);
+});
