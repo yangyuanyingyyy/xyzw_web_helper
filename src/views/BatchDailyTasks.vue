@@ -499,6 +499,13 @@
                 >
                   逐鹿盐山竞猜
                 </n-button>
+                <n-button
+                  size="small"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                  @click="batchApexVote()"
+                >
+                  一键逐鹿盐山助威
+                </n-button>
               </n-space>
             </n-tab-pane>
             <n-tab-pane name="baoku" tab="宝库">
@@ -4742,6 +4749,8 @@ function getScheduledTask(taskName) {
     batchGenieSweep,
     batchBuyDreamItems,
     batchXuanwuBlessing,
+    batchGachaFree,
+    batchClaimAndUseItems,
   };
   return Object.hasOwn(tasks, taskName) ? tasks[taskName] : undefined;
 }
@@ -6216,7 +6225,7 @@ const tasksFootball = createTasksFootball(createTaskDeps());
 const { batchFootballBet } = tasksFootball;
 
 const tasksApex = createTasksApex(createTaskDeps());
-const { batchApexGuess } = tasksApex;
+const { batchApexGuess, batchApexVote } = tasksApex;
 
 const tasksCampChallenge = createTasksCampChallenge(createTaskDeps());
 const { batchCampChallenge, batchCampChallengePet, batchCampClaimTasks } =

@@ -1,11 +1,14 @@
 /**
- * 逐鹿盐山竞猜任务
- * 包含: 一键批量竞猜（自动选助威最高队伍）
+ * 逐鹿盐山任务
+ * 包含: 一键批量竞猜（自动选助威最高队伍）、一键批量助威（全量道具助威榜第一名）
  *
  * 开放判定复用 utils/apexRules.js（1:1 移植客户端规则）：
- *   · 仅淘汰赛阶段（stage 4~10）且状态为 Unlocked / Locked 的场次可押；
- *   · 每阶段可押队伍数上限 = 该阶段 advanceNum（季军赛恒为 1）；
- *   · 分页 idx = 已加载条数，以响应 last 终止。
+ *   · 竞猜：仅淘汰赛阶段（stage 4~10）且状态为 Unlocked / Locked 的场次可押；
+ *     每阶段可押队伍数上限 = 该阶段 advanceNum（季军赛恒为 1）；
+ *     分页 idx = 已加载条数，以响应 last 终止。
+ *   · 助威：checkSupportInTime 判定该期是否处于可助威窗口
+ *     （正式赛段 / 淘汰赛段且该期无 Locked / Fighting 场次）；
+ *     助威榜 scheduleId = 淘汰赛段优先、其次正式赛段（等价客户端 currentScheduleId）。
  */
 
 import {
@@ -16,11 +19,18 @@ import {
 } from "@/utils/apexRateLimit";
 import {
   ApexScheduleStatus,
+  ApexStageType,
   calibrateServerTime,
+  checkSupportInTime,
   getAdvanceNum,
   getCurrentRounds,
   getCurrentSeason,
+  getDateZeroTime,
   getGuessTabs,
+  getScheduleIdByStage,
+  getSeasonConf,
+  getStageInfoByRound,
+  getSupportGroupId,
 } from "@/utils/apexRules";
 
 /** 单次请求超时（ms） */
@@ -68,6 +78,49 @@ const resolveOpenGuesses = (nowMs) => {
     if (tabs.length) openRounds.push({ season, round, tabs });
   }
   return openRounds;
+};
+
+/**
+ * 助威道具持有量（等价面板 ApexChallenge.supportItemCnt）：
+ * 服务端原始字段 voteItemCnt 仅在服务端赛季处于其配置窗口内时有效，否则为 0。
+ * @param {object} apexRoleInfo apex_getroleinfo 返回的 apexRoleInfo
+ * @param {number} roleSeason 服务端上报的赛季号
+ * @param {number} nowMs 服务端时间
+ * @returns {number} 有效助威道具数
+ */
+const resolveVoteItemCnt = (apexRoleInfo, roleSeason, nowMs) => {
+  const conf = getSeasonConf(roleSeason);
+  if (!conf) return 0;
+  const start = getDateZeroTime(conf.startDate);
+  const end = getDateZeroTime(conf.endDate);
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    nowMs < start ||
+    nowMs > end
+  ) {
+    return 0;
+  }
+  return Number(apexRoleInfo?.voteItemCnt) || 0;
+};
+
+/**
+ * 助威榜所属阶段的 scheduleId（等价面板 ApexChallenge.voteScheduleId，
+ * 客户端 apexScheduleData.currentScheduleId）：淘汰赛段优先，其次正式赛段。
+ * @param {number} round 期号
+ * @param {number} season 赛季号
+ * @param {number} nowMs 服务端时间
+ * @returns {number} scheduleId；无法推导时为 -1
+ */
+const resolveVoteScheduleId = (round, season, nowMs) => {
+  const info = getStageInfoByRound(round, season, nowMs);
+  if (info?.[ApexStageType.TaoTai]?.isEnable) {
+    return getScheduleIdByStage(ApexStageType.TaoTai, round, season);
+  }
+  if (info?.[ApexStageType.ZhengShi]?.isEnable) {
+    return getScheduleIdByStage(ApexStageType.ZhengShi, round, season);
+  }
+  return -1;
 };
 
 /**
@@ -338,7 +391,192 @@ export function createTasksApex(deps) {
     message.success("批量逐鹿盐山竞猜结束");
   };
 
+  /**
+   * 一键批量逐鹿盐山助威
+   * 默认选当前可助威的期，把全部助威道具投给助威榜第一名
+   * 无道具 / 当前期不可助威 → 跳过该账号并提示
+   */
+  const batchApexVote = async () => {
+    if (selectedTokens.value.length === 0) return;
+    isRunning.value = true;
+    shouldStop.value = false;
+
+    selectedTokens.value.forEach((id) => {
+      tokenStatus.value[id] = "waiting";
+    });
+
+    const taskPromises = selectedTokens.value.map(async (tokenId) => {
+      if (shouldStop.value) return;
+
+      tokenStatus.value[tokenId] = "running";
+      const token = tokens.value.find((t) => t.id === tokenId);
+
+      try {
+        await ensureConnection(tokenId);
+
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `=== 开始逐鹿盐山助威: ${token.name} ===`,
+          type: "info",
+        });
+
+        // 1. 角色信息：道具 / 分组 / 服务端时间
+        const roleResp = await sendApex(
+          ApexAction.READ,
+          (queuedMs) =>
+            tokenStore.sendMessageWithPromise(
+              tokenId,
+              "apex_getroleinfo",
+              {},
+              TIMEOUT_MS + queuedMs,
+            ),
+          READ_MAX_RETRY,
+        );
+        const apexInfo = roleResp?.apexRoleInfo || {};
+        const roleSeason = Number(apexInfo.resetTime?.season) || 0;
+        const nowMs = calibrateServerTime(Date.now(), apexInfo.resetTime?.day);
+
+        // 2. 道具判定（赛季窗口内才有效，等价面板 supportItemCnt）
+        const voteItemCnt = resolveVoteItemCnt(apexInfo, roleSeason, nowMs);
+        if (voteItemCnt <= 0) {
+          addLog({
+            time: new Date().toLocaleTimeString(),
+            message: `${token.name} 无助威道具，跳过`,
+            type: "warning",
+          });
+          tokenStatus.value[tokenId] = "completed";
+          return;
+        }
+
+        // 3. 找当前可助威的期（本地规则推演，与游戏判定一致）
+        const season = getCurrentSeason(nowMs);
+        let targetRound = null;
+        if (season > 0) {
+          for (const round of getCurrentRounds(season, nowMs)) {
+            if (checkSupportInTime(round, season, nowMs)) {
+              targetRound = round;
+              break;
+            }
+          }
+        }
+        if (!targetRound) {
+          addLog({
+            time: new Date().toLocaleTimeString(),
+            message: `${token.name} 当前期不在助威时间内（仅正式赛段/淘汰赛段且无进行中场次可助威），跳过`,
+            type: "warning",
+          });
+          tokenStatus.value[tokenId] = "completed";
+          return;
+        }
+
+        // 4. 助威榜分组号（等价面板 fetchVoteBoard 的 groupId 取法）
+        const scheduleId = resolveVoteScheduleId(
+          targetRound,
+          season,
+          nowMs,
+        );
+        const groupId = getSupportGroupId(apexInfo.group, scheduleId);
+
+        // 5. 分页拉助威榜取第一名（服务端按 cheerCnt 降序，首行即第一）
+        const rows = [];
+        let last = false;
+        for (let p = 0; p < MAX_PAGES && !last; p++) {
+          if (shouldStop.value) break;
+          const resp = await sendApex(
+            ApexAction.READ,
+            (queuedMs) =>
+              tokenStore.sendMessageWithPromise(
+                tokenId,
+                "apex_getvotelist",
+                { groupId, round: targetRound, idx: rows.length },
+                TIMEOUT_MS + queuedMs,
+              ),
+            READ_MAX_RETRY,
+          );
+          const list = resp?.apexVoteList || [];
+          if (!list.length) break;
+          rows.push(...list);
+          last = resp?.last === true;
+        }
+
+        // 第一名 = 首个未淘汰的有效队伍（榜单已按 cheerCnt 降序）
+        const top = rows.find(
+          (t) => t && t.teamId != null && t.isOut !== true,
+        );
+        if (!top) {
+          addLog({
+            time: new Date().toLocaleTimeString(),
+            message: `${token.name} 当前期无可助威的队伍，跳过`,
+            type: "warning",
+          });
+          tokenStatus.value[tokenId] = "completed";
+          return;
+        }
+
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 第${season}赛季 第${targetRound}期，目标第一名：${top.name}（助威数 ${top.cheerCnt ?? 0}）`,
+          type: "info",
+        });
+
+        // 6. 全量道具助威第一名
+        await runApexAction(
+          ApexAction.VOTE,
+          (queuedMs) =>
+            tokenStore.sendMessageWithPromise(
+              tokenId,
+              "apex_vote",
+              { teamId: top.teamId, round: targetRound, voteCnt: voteItemCnt },
+              TIMEOUT_MS + queuedMs,
+            ),
+          {
+            // 等待冷却的提示：>2s 才记日志（短间隔是正常节奏尾巴，不刷屏）；
+            // 排队是预防性节奏控制而非错误，用 info 而非 warning
+            onWait: (ms) => {
+              if (ms < 2000) return;
+              addLog({
+                time: new Date().toLocaleTimeString(),
+                message: `${token.name} 按服务器节奏排队中，${Math.ceil(ms / 1000)}s 后执行投票`,
+                type: "info",
+              });
+            },
+          },
+        );
+
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 已为 ${top.name} 助威 ${voteItemCnt} 个道具 ✓`,
+          type: "success",
+        });
+        tokenStatus.value[tokenId] = "completed";
+      } catch (error) {
+        console.error(error);
+        tokenStatus.value[tokenId] = "failed";
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 逐鹿盐山助威失败: ${error.message || "未知错误"}${isApexRateLimited(error) ? "（服务器限流，稍后重跑即可续投）" : ""}`,
+          type: "error",
+        });
+      } finally {
+        tokenStore.closeWebSocketConnection(tokenId);
+        releaseConnectionSlot();
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 连接已关闭  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
+          type: "info",
+        });
+      }
+    });
+
+    await Promise.all(taskPromises);
+
+    isRunning.value = false;
+    currentRunningTokenId.value = null;
+    message.success("批量逐鹿盐山助威结束");
+  };
+
   return {
     batchApexGuess,
+    batchApexVote,
   };
 }
