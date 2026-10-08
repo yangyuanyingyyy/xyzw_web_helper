@@ -227,7 +227,7 @@ test("a single claim failure does not block the remaining tasks", async () => {
   assert.equal(logs.some((m) => m.includes("任务3 领取失败")), true);
 });
 
-test("server code 200020 is treated as already-claimed and stays silent", async () => {
+test("server code 200020 is reported per task and stays non-failing", async () => {
   const { createTasksApex } = await loadVote(baseRules());
   const claims = [];
   const logs = [];
@@ -255,10 +255,12 @@ test("server code 200020 is treated as already-claimed and stays silent", async 
   // 全部 7 个都请求（含 200020 的）
   assert.deepEqual(claims, [1, 2, 3, 4, 5, 6, 7]);
   assert.equal(deps.tokenStatus.value.test, "completed");
-  // 200020 的任务不产生任何失败/警告日志
-  assert.equal(logs.some((m) => m.includes("任务4")), false);
-  assert.equal(logs.some((m) => m.includes("任务5")), false);
-  assert.equal(logs.some((m) => m.includes("任务6")), false);
+  // 每个被拒任务都有逐条提示
+  assert.equal(logs.some((m) => m.includes("任务4 已领取过或未完成")), true);
+  assert.equal(logs.some((m) => m.includes("任务5 已领取过或未完成")), true);
+  assert.equal(logs.some((m) => m.includes("任务6 已领取过或未完成")), true);
+  // 没有失败级别的 200020 报错日志
+  assert.equal(logs.some((m) => m.includes("领取失败: 服务器错误: 200020")), false);
   // 汇总日志含"跳过3"（4、5、6）
   assert.equal(logs.some((m) => m.includes("跳过3")), true);
 });

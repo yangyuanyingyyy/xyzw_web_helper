@@ -13,7 +13,7 @@
  *   · 任务奖励：每次完整遍历 confId 1~7，全部逐个 apex_taskclaim 不跳过，
  *     由服务器裁决（可领则发放；已领/未完成则拒绝）。
  *     错误码 200020（"出了点小问题"）实测语义为「已领取过或任务未完成」，
- *     静默跳过不记日志不计失败；其余错误如实记录。
+ *     逐任务提示后跳过不计失败；其余错误如实记录。
  */
 
 import {
@@ -664,11 +664,16 @@ export function createTasksApex(deps) {
             });
           } catch (error) {
             // 200020（"出了点小问题"）在本接口实测语义为「已领取过或任务未完成」：
-            // 属正常业务结果而非异常，静默跳过不记日志、不计入失败
+            // 属正常业务结果而非异常，逐任务提示后跳过、不计入失败
             const isAlreadyDone =
               error?.message?.includes("200020") === true;
             if (isAlreadyDone) {
               skipCount++;
+              addLog({
+                time: new Date().toLocaleTimeString(),
+                message: `${token.name} 任务${confId} 已领取过或未完成，跳过`,
+                type: "info",
+              });
               continue;
             }
             // 200160 模块未开启：该账号未解锁逐鹿盐山功能，
