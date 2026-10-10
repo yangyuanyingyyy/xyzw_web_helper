@@ -1,3 +1,4 @@
+import { runGameCommand } from "@/utils/commandRateLimit";
 import {
   getClaimablePointRewards,
   getDailyTaskStates,
@@ -95,8 +96,32 @@ export class DailyTaskRunner {
     try {
       if (description) this.log(`执行: ${description}`);
       this.roleStateDirty = true;
+      // Every command goes through the shared rate gate so bursts are paced
+      // before they reach the server. Retrying a 200400 is intentionally left
+      // off: a widened estimate already slows the next command down.
       const result = await this.sendRequest(tokenId, () =>
-        this.tokenStore.sendMessageWithPromise(tokenId, cmd, params, timeout),
+        runGameCommand({
+          cmd,
+          send: () =>
+            this.tokenStore.sendMessageWithPromise(
+              tokenId,
+              cmd,
+              params,
+              timeout,
+            ),
+          // The runner contract is "stop once without retries": a 200400 aborts
+          // the account instead of hammering the server. Prevention happens
+          // before the send via pacing; the widened estimate persists for later.
+          maxRetry: 0,
+          shouldStop: () => this.callbacks?.shouldStop?.() === true,
+          onWait: (ms) => {
+            if (ms >= 1000)
+              this.log(
+                `服务器限流，等待 ${Math.ceil(ms / 1000)}s 后继续`,
+                "warning",
+              );
+          },
+        }),
       );
       await this.sleep(this.delaySettings.commandDelay);
       if (description)

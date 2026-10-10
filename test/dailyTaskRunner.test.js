@@ -3,9 +3,19 @@ import { test } from "node:test";
 import * as stateHelpers from "../src/utils/dailyTaskState.js";
 import { loadModule } from "./helpers/loadModule.js";
 
+// The runner routes every command through the shared rate limiter. Tests inject a
+// pass-through stub so they stay deterministic; commandRateLimit.test.js covers
+// the limiter itself.
+const rateLimitStub = {
+  runGameCommand: async ({ send }) => send(),
+};
+
 const { DailyTaskRunner } = await loadModule(
   new URL("../src/utils/dailyTaskRunner.js", import.meta.url),
-  { "@/utils/dailyTaskState": stateHelpers },
+  {
+    "@/utils/dailyTaskState": stateHelpers,
+    "@/utils/commandRateLimit": rateLimitStub,
+  },
 );
 const definitions = [
   [1, 1, 1],

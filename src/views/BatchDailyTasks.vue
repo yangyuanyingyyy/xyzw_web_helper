@@ -319,6 +319,13 @@
               <n-space>
                 <n-button
                   size="small"
+                  @click="startBatch"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                >
+                  日常任务
+                </n-button>
+                <n-button
+                  size="small"
                   @click="claimHangUpRewards"
                   :disabled="isRunning || selectedTokens.length === 0"
                 >
@@ -3160,6 +3167,7 @@ import { goldItemsConfig, merchantConfig } from "@/utils/dreamConstants";
 import { isSameGameValue } from "@/utils/gameValue.js";
 
 import { DEFAULT_WEIRD_TOWER_MAX_CLIMB } from "@/utils/towerClimbLimit.js";
+import { enqueueScheduledTask } from "@/utils/batch/scheduledTaskQueue";
 
 // Initialize token store, message service, and task runner
 const tokenStore = useTokenStore();
@@ -4891,7 +4899,32 @@ const executeScheduledTask = async (task) => {
     message: `=== 开始执行定时任务: ${task.name} ===`,
     type: "info",
   });
+  // 全局串行：同一时刻只跑一个定时任务，消除「任务 × 子任务 × 账号」三层扇出
+  await enqueueScheduledTask(() => executeScheduledTaskBody(task), {
+    onQueued: (size) => {
+      if (size > 1)
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `已有定时任务在执行，${task.name} 排队等待（队列: ${size}）`,
+          type: "warning",
+        });
+    },
+    onTimeout: () =>
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `定时任务 ${task.name} 排队超时，已跳过`,
+        type: "error",
+      }),
+  });
+};
 
+const executeScheduledTaskBody = async (task) => {
+  if (isRunning.value)
+    addLog({
+      time: new Date().toLocaleTimeString(),
+      message: "检测到已有批量任务在执行（可能是手动触发），本次定时任务按顺序排队",
+      type: "warning",
+    });
   try {
     // Verify dependencies before executing task
     const dependenciesValid = await verifyTaskDependencies(task);
@@ -4938,7 +4971,7 @@ const executeScheduledTask = async (task) => {
     selectedTokens.value = [...availableTokens];
 
     // Execute selected tasks in parallel
-    const taskPromises = task.selectedTasks.map(async (taskName) => {
+    const taskSteps = task.selectedTasks.map((taskName) => async () => {
       if (shouldStop.value) return;
 
       if (
@@ -5029,8 +5062,11 @@ const executeScheduledTask = async (task) => {
       }
     });
 
-    // Wait for all tasks to complete
-    await Promise.all(taskPromises);
+    // Run sub-tasks one by one: a scheduled task must not fan out in parallel.
+    for (const step of taskSteps) {
+      if (shouldStop.value) break;
+      await step();
+    }
 
     addLog({
       time: new Date().toLocaleTimeString(),
